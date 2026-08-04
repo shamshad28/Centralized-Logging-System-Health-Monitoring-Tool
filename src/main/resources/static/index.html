@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PULSE — Centralized Logging & System Health Monitor</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome & Chart.js & SockJS/STOMP -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-logo">
+                    <i class="fa-solid fa-heart-pulse text-cyan"></i>
+                </div>
+                <div class="brand-text">
+                    <h2>PULSE <span>MONITOR</span></h2>
+                    <small>System Health & Logs</small>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <button class="nav-item active" data-tab="overview">
+                    <i class="fa-solid fa-chart-pie"></i> Overview
+                </button>
+                <button class="nav-item" data-tab="logs">
+                    <i class="fa-solid fa-list-check"></i> Log Explorer
+                </button>
+                <button class="nav-item" data-tab="metrics">
+                    <i class="fa-solid fa-server"></i> System Metrics & JVM
+                </button>
+                <button class="nav-item" data-tab="alerts">
+                    <i class="fa-solid fa-triangle-exclamation"></i> Alerts & Incidents
+                    <span class="badge-alert-count" id="navAlertBadge">0</span>
+                </button>
+                <button class="nav-item" data-tab="simulator">
+                    <i class="fa-solid fa-flask"></i> Traffic Simulator
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="connection-status">
+                    <div class="status-indicator" id="statusDot"></div>
+                    <span id="statusText">Connecting...</span>
+                </div>
+                <small class="version-tag">Spring Boot 3.2 • Java 25</small>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Top Navigation Header -->
+            <header class="top-header">
+                <div class="header-title">
+                    <h1 id="pageTitle">System Overview</h1>
+                    <p id="pageSubtitle">Real-time telemetry, live microservice logs & JVM metrics</p>
+                </div>
+
+                <div class="header-actions">
+                    <div class="simulator-quick-toggle">
+                        <span class="toggle-label"><i class="fa-solid fa-robot"></i> Traffic Gen</span>
+                        <label class="switch">
+                            <input type="checkbox" id="simToggleHeader" checked>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+
+                    <button class="btn btn-outline" id="btnPauseStream">
+                        <i class="fa-solid fa-pause" id="pauseIcon"></i> <span id="pauseBtnText">Pause Live Stream</span>
+                    </button>
+                    
+                    <button class="btn btn-primary" onclick="switchTab('logs')">
+                        <i class="fa-solid fa-magnifying-glass"></i> Search Logs
+                    </button>
+                </div>
+            </header>
+
+            <!-- TAB 1: OVERVIEW -->
+            <section class="tab-content active" id="tab-overview">
+                <!-- KPI Counter Grid -->
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-icon bg-cyan-glow">
+                            <i class="fa-solid fa-file-code"></i>
+                        </div>
+                        <div class="kpi-info">
+                            <span class="kpi-label">Ingested Logs</span>
+                            <h3 class="kpi-value" id="kpiTotalLogs">0</h3>
+                            <small class="kpi-subtext" id="kpiLogsPerSec">~0 logs/min</small>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon bg-red-glow">
+                            <i class="fa-solid fa-bug"></i>
+                        </div>
+                        <div class="kpi-info">
+                            <span class="kpi-label">Errors Detected</span>
+                            <h3 class="kpi-value text-red" id="kpiTotalErrors">0</h3>
+                            <small class="kpi-subtext" id="kpiErrorRate">0% error rate</small>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon bg-emerald-glow">
+                            <i class="fa-solid fa-network-wired"></i>
+                        </div>
+                        <div class="kpi-info">
+                            <span class="kpi-label">Monitored Services</span>
+                            <h3 class="kpi-value text-emerald" id="kpiServicesHealth">4 / 4 UP</h3>
+                            <small class="kpi-subtext">100% operational</small>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon bg-violet-glow">
+                            <i class="fa-solid fa-microchip"></i>
+                        </div>
+                        <div class="kpi-info">
+                            <span class="kpi-label">JVM CPU & Memory</span>
+                            <h3 class="kpi-value text-violet" id="kpiCpuMem">15% | 120MB</h3>
+                            <small class="kpi-subtext" id="kpiGcCount">GC Collections: 0</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Log Stream & Service Topology Cards -->
+                <div class="grid-2col mt-4">
+                    <!-- Live Stream Ticker -->
+                    <div class="card glass-card">
+                        <div class="card-header">
+                            <h3><i class="fa-solid fa-bolt text-amber"></i> Live Log Feed (WebSocket)</h3>
+                            <div class="card-actions">
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="chkAutoScroll" checked> Auto-Scroll
+                                </label>
+                                <span class="badge badge-info" id="liveLogCountBadge">0 live</span>
+                            </div>
+                        </div>
+                        <div class="log-stream-container" id="liveLogFeed">
+                            <div class="empty-feed-placeholder">
+                                <i class="fa-solid fa-circle-notch fa-spin text-cyan"></i>
+                                <p>Waiting for incoming telemetry log stream...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Service Node Health Grid -->
+                    <div class="card glass-card">
+                        <div class="card-header">
+                            <h3><i class="fa-solid fa-shield-heart text-emerald"></i> Service Topology Health</h3>
+                            <button class="btn btn-xs btn-outline" onclick="loadServices()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                        </div>
+                        <div class="services-grid" id="overviewServiceGrid">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: LOG EXPLORER -->
+            <section class="tab-content" id="tab-logs">
+                <div class="card glass-card">
+                    <div class="filter-toolbar">
+                        <div class="filter-group">
+                            <label><i class="fa-solid fa-server"></i> Service</label>
+                            <select id="filterService" class="form-control">
+                                <option value="ALL">All Microservices</option>
+                                <option value="auth-service">auth-service</option>
+                                <option value="payment-gateway">payment-gateway</option>
+                                <option value="order-service">order-service</option>
+                                <option value="inventory-api">inventory-api</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label><i class="fa-solid fa-layer-group"></i> Log Level</label>
+                            <select id="filterLevel" class="form-control">
+                                <option value="ALL">All Levels</option>
+                                <option value="INFO">INFO</option>
+                                <option value="WARN">WARN</option>
+                                <option value="ERROR">ERROR</option>
+                                <option value="DEBUG">DEBUG</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label><i class="fa-solid fa-fingerprint"></i> Trace ID</label>
+                            <input type="text" id="filterTraceId" class="form-control" placeholder="e.g. a1b2c3d4">
+                        </div>
+
+                        <div class="filter-group flex-1">
+                            <label><i class="fa-solid fa-font"></i> Keyword Search</label>
+                            <input type="text" id="filterKeyword" class="form-control" placeholder="Search message or exception stack trace...">
+                        </div>
+
+                        <div class="filter-group">
+                            <label>&nbsp;</label>
+                            <button class="btn btn-primary" onclick="performLogSearch()"><i class="fa-solid fa-filter"></i> Apply Filter</button>
+                        </div>
+                    </div>
+
+                    <!-- Logs Data Table -->
+                    <div class="table-responsive mt-3">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>Service</th>
+                                    <th>Level</th>
+                                    <th>Trace ID</th>
+                                    <th>Message</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logsTableBody">
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted">No logs found. Adjust filters or trigger simulator.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination-footer">
+                        <span id="paginationInfo">Showing page 1 of 1</span>
+                        <div class="pagination-buttons">
+                            <button class="btn btn-xs btn-outline" id="btnPrevPage" disabled onclick="changePage(-1)">Previous</button>
+                            <button class="btn btn-xs btn-outline" id="btnNextPage" disabled onclick="changePage(1)">Next</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: SYSTEM METRICS & JVM -->
+            <section class="tab-content" id="tab-metrics">
+                <div class="grid-2col">
+                    <div class="card glass-card">
+                        <h3><i class="fa-solid fa-microchip text-cyan"></i> JVM & System CPU Load (%)</h3>
+                        <div class="chart-container mt-3">
+                            <canvas id="chartCpu"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="card glass-card">
+                        <h3><i class="fa-solid fa-memory text-violet"></i> JVM Heap Memory Usage (MB)</h3>
+                        <div class="chart-container mt-3">
+                            <canvas id="chartMemory"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid-2col mt-4">
+                    <div class="card glass-card">
+                        <h3><i class="fa-solid fa-diagram-project text-amber"></i> JVM Thread States</h3>
+                        <div class="chart-container mt-3 flex-center">
+                            <canvas id="chartThreads" style="max-height: 250px;"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="card glass-card">
+                        <div class="card-header">
+                            <h3><i class="fa-solid fa-hard-drive text-emerald"></i> System Hardware & GC Telemetry</h3>
+                        </div>
+                        <div class="telemetry-list mt-3">
+                            <div class="telemetry-item">
+                                <span><i class="fa-solid fa-microchip"></i> System Uptime</span>
+                                <strong id="valUptime">0h 0m</strong>
+                            </div>
+                            <div class="telemetry-item">
+                                <span><i class="fa-solid fa-recycle"></i> Garbage Collections</span>
+                                <strong id="valGcStats">0 cycles (0 ms)</strong>
+                            </div>
+                            <div class="telemetry-item">
+                                <span><i class="fa-solid fa-bars-staggered"></i> Live Threads (Peak)</span>
+                                <strong id="valThreadsCount">0 (0 peak)</strong>
+                            </div>
+                            <div class="telemetry-item">
+                                <span><i class="fa-solid fa-database"></i> Storage Available</span>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar" id="diskProgressBar" style="width: 70%;"></div>
+                                </div>
+                                <small id="valDiskSpace">0 GB free</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card glass-card mt-4">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-server text-cyan"></i> Registered Monitored Nodes</h3>
+                        <button class="btn btn-sm btn-primary" onclick="openRegisterNodeModal()"><i class="fa-solid fa-plus"></i> Register Service</button>
+                    </div>
+                    <div class="table-responsive mt-3">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Service Name</th>
+                                    <th>Environment</th>
+                                    <th>Health Endpoint URL</th>
+                                    <th>Status</th>
+                                    <th>Latency (ms)</th>
+                                    <th>Last Checked</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="registeredNodesTableBody">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: ALERTS & INCIDENTS -->
+            <section class="tab-content" id="tab-alerts">
+                <div class="grid-2col">
+                    <!-- Active Incidents Feed -->
+                    <div class="card glass-card">
+                        <div class="card-header">
+                            <h3><i class="fa-solid fa-bell text-red"></i> Incident Management Feed</h3>
+                        </div>
+                        <div class="incidents-feed mt-3" id="incidentsContainer">
+                            <div class="text-muted p-3">No active incidents triggered. System operational.</div>
+                        </div>
+                    </div>
+
+                    <!-- Configured Rules -->
+                    <div class="card glass-card">
+                        <div class="card-header">
+                            <h3><i class="fa-solid fa-sliders text-cyan"></i> Configured Alert Rules</h3>
+                            <button class="btn btn-sm btn-primary" onclick="openAddRuleModal()"><i class="fa-solid fa-plus"></i> New Rule</button>
+                        </div>
+                        <div class="table-responsive mt-3">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Rule Name</th>
+                                        <th>Target Service</th>
+                                        <th>Metric Type</th>
+                                        <th>Threshold</th>
+                                        <th>Severity</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="rulesTableBody">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 5: TRAFFIC SIMULATOR -->
+            <section class="tab-content" id="tab-simulator">
+                <div class="card glass-card">
+                    <div class="card-header">
+                        <div>
+                            <h3><i class="fa-solid fa-flask text-violet"></i> Microservice Cluster Simulator Control Panel</h3>
+                            <p class="text-muted">Simulate realistic multi-service load, error spikes, and infrastructure outages in real-time.</p>
+                        </div>
+                    </div>
+
+                    <div class="simulator-controls mt-4">
+                        <div class="sim-card">
+                            <h4>1. Generator Status</h4>
+                            <div class="flex-center-gap mt-3">
+                                <label class="switch switch-lg">
+                                    <input type="checkbox" id="simToggleMain" checked>
+                                    <span class="slider round"></span>
+                                </label>
+                                <span class="status-badge badge-success" id="simStatusBadge">RUNNING (2.5s interval)</span>
+                            </div>
+                        </div>
+
+                        <div class="sim-card">
+                            <h4>2. Inject Synthetic Service Fault</h4>
+                            <p class="small text-muted mb-3">Trigger an immediate burst of critical error logs or service crash</p>
+                            <div class="fault-buttons">
+                                <button class="btn btn-danger" onclick="injectFault('payment-gateway', 'DOWN')">
+                                    <i class="fa-solid fa-skull"></i> Crash Payment Gateway
+                                </button>
+                                <button class="btn btn-warning" onclick="injectFault('order-service', 'DB_TIMEOUT')">
+                                    <i class="fa-solid fa-database"></i> Trigger DB Timeout Spike
+                                </button>
+                                <button class="btn btn-info" onclick="injectFault('auth-service', 'AUTH_ERROR')">
+                                    <i class="fa-solid fa-key"></i> Inject OAuth2 Burst
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- LOG INSPECTOR MODAL -->
+    <div class="modal-overlay" id="logModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-file-code text-cyan"></i> Log Entry Details</h3>
+                <button class="btn-close" onclick="closeLogModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-meta-grid">
+                    <div><strong>Timestamp:</strong> <span id="modalTimestamp">--</span></div>
+                    <div><strong>Service:</strong> <span id="modalService">--</span></div>
+                    <div><strong>Level:</strong> <span id="modalLevel">--</span></div>
+                    <div><strong>Trace ID:</strong> <span id="modalTraceId">--</span></div>
+                    <div><strong>Host IP:</strong> <span id="modalHost">--</span></div>
+                    <div><strong>Environment:</strong> <span id="modalEnv">--</span></div>
+                </div>
+
+                <div class="mt-3">
+                    <label><strong>Log Message:</strong></label>
+                    <div class="code-box" id="modalMessage">--</div>
+                </div>
+
+                <div class="mt-3" id="modalStackContainer">
+                    <label class="text-red"><strong>Exception Stack Trace:</strong></label>
+                    <pre class="code-box stack-trace" id="modalStackTrace">--</pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeLogModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- REGISTER SERVICE MODAL -->
+    <div class="modal-overlay" id="registerServiceModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-server text-cyan"></i> Register New Monitored Node</h3>
+                <button class="btn-close" onclick="closeRegisterNodeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Service Name</label>
+                    <input type="text" id="nodeNameInput" class="form-control" placeholder="e.g. shipping-service">
+                </div>
+                <div class="form-group mt-2">
+                    <label>Health Endpoint URL</label>
+                    <input type="text" id="nodeUrlInput" class="form-control" placeholder="http://shipping.internal/actuator/health">
+                </div>
+                <div class="form-group mt-2">
+                    <label>Environment</label>
+                    <select id="nodeEnvInput" class="form-control">
+                        <option value="PRODUCTION">PRODUCTION</option>
+                        <option value="STAGING">STAGING</option>
+                        <option value="DEVELOPMENT">DEVELOPMENT</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeRegisterNodeModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="submitRegisterNode()">Save Service</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
